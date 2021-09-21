@@ -1,0 +1,66 @@
+[Targetマシン]
+
+
+
+(MellanoxのOFEDドライバをDL)
+
+sudo su
+
+(HugePage)
+echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+echo 4 > /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+mkdir /dev/hugepages1G
+mount -t hugetlbfs -o pagesize=1G none /dev/hugepages1G
+
+tar xvf MLNX_OFED_LINUX-5.4-1.0.3.0-ubuntu20.04-x86_64.tgz
+cd MLNX_OFED_LINUX-5.4-1.0.3.0-ubuntu20.04-x86_64
+(場合によってはここでfioとその依存関係はアンインストールしておく必要がある。再起動後入れなおせばOK)
+ ./mlnxofedinstall --add-kernel-support --with-nvmf
+(ビルドに時間かかる)
+/etc/init.d/openibd restart
+(ここでエラー出たらmodprobe -r なりrebootなり)
+ /usr/bin/hca_self_test.ofed
+
+reboot
+sudo su
+modprobe mlx5_core
+modprobe mlx5_ib
+modprobe ib_cm
+modprobe ib_core
+modprobe ib_ucm
+modprobe ib_umad
+modprobe ib_uverbs
+modprobe iw_cm
+modprobe rdma_cm
+modprobe rdma_ucm
+lsmod | grep mlx
+
+apt install git
+cd /usr/src
+git clone https://github.com/spdk/spdk
+cd spdk
+git submodule update --init
+scripts/pkgdep.sh --rdma
+./configure --with-rdma
+(ここでエラー出たら不足パッケージaptで入れる。ubuntuの場合パッケージ名若干違うことあり)
+make
+./test/unit/unittest.sh
+lspci |grep memory (SSDの確認)
+
+scripts/setup.sh
+scripts/setup.sh status
+
+
+
+build/bin/nvmf_tgt
+scripts/rpc.py nvmf_create_transport -t RDMA -u 8192 -m 4 -c 0
+scripts/rpc.py nvmf_create_subsystem nqn.2016-06.io.spdk:cnode1 -a -s SPDK00000000000001 -d SPDK_Controller1
+
+たぶんmallocしたほうがよさそう
+
+
+scripts/setup.sh
+scripts/rpc.py nvmf_create_transport -t TCP -u 16384 -p 8 -c 8192
+scripts/rpc.py bdev_nvme_attach_controller -b Nvme0 -t PCIe -a 0000:09:00.0
+scripts/rpc.py nvmf_create_subsystem nqn.2020-05.io.spdk:cnode1 -a -s SPDK00000000000001 -d SPDK_Controller1
+scripts/rpc.py nvmf_subsystem_add_listener nqn.2020-05.io.spdk:cnode1 -t tcp -a 172.31.35.1 -s 4420
